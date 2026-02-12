@@ -27,7 +27,7 @@ class UserController extends Controller
      */
     public function index()
     {
-        $users = User::withTrashed()->with('tasks')->get();
+        $users = User::with('tasks')->get();
 
         return response()->json([
             'users' => $users,
@@ -68,7 +68,7 @@ class UserController extends Controller
      */
     public function show($id)
     {
-        $user = User::withTrashed()->with('tasks')->findOrFail($id);
+        $user = User::with('tasks')->findOrFail($id);
 
         return response()->json([
             'user' => $user,
@@ -106,8 +106,15 @@ class UserController extends Controller
     /**
      * Soft delete a user (Admin)
      */
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
+        // Prevent admin from deleting themselves
+        if ($request->user()->id == $id) {
+            return response()->json([
+                'message' => 'You cannot delete your own account',
+            ], 403);
+        }
+
         $user = User::findOrFail($id);
         $user->delete();
 

@@ -10,15 +10,17 @@ Route::get('/', function () {
     return view('welcome');
 });
 
+// Login page
+Route::get('/login', function () {
+    return view('login');
+})->name('login');
+
 // ============================================
-// Admin Web Interface (Auth + Admin middleware)
+// Admin Web Interface (Token authentication via JavaScript)
 // ============================================
-Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
+Route::prefix('admin')->group(function () {
     
-    // Admin Dashboard
-    Route::get('/dashboard', [AdminController::class, 'dashboard'])->name('admin.dashboard');
-    
-    // Admin Panel Views (optional - for future web interface)
+    // Admin Panel Views (authentication checked via JavaScript + localStorage token)
     Route::view('/users', 'admin.users')->name('admin.users.view');
     Route::view('/tasks', 'admin.tasks')->name('admin.tasks.view');
     Route::view('/assignments', 'admin.assignments')->name('admin.assignments.view');

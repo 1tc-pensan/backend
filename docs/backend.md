@@ -572,7 +572,7 @@ Authorization: Bearer {{user_token}}
 
 ---
 
-## 10. Feature tesztek
+## 11. Feature tesztek
 
 A projekt a Laravel beépített PHPUnit tesztelési keretrendszerét használja.
 
@@ -672,7 +672,7 @@ backend/
 
 ---
 
-## 14. Hasznos Artisan parancsok
+## 13. Hasznos Artisan parancsok
 
 ```bash
 # Migrációk futtatása
@@ -695,7 +695,7 @@ php artisan storage:link
 ```
 
 
-## 15. Összefoglaló
+## 14. Összefoglaló
 
 | Szempont | Részlet |
 |---|---|

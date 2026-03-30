@@ -618,38 +618,6 @@ public function test_authenticated_user_can_create_report(): void
 }
 ```
 
-### Feature teszt példa – Jogosulatlan hozzáférés
-
-```php
-public function test_guest_cannot_create_report(): void
-{
-    $response = $this->postJson('/api/reports', [
-        'title' => 'Teszt',
-    ]);
-
-    $response->assertStatus(401);
-}
-```
-
-### Feature teszt példa – Admin jóváhagyás
-
-```php
-public function test_admin_can_approve_report(): void
-{
-    $admin = User::factory()->create(['role' => 'admin']);
-    $report = Report::factory()->create(['status' => 'pending']);
-
-    $response = $this->actingAs($admin)
-                     ->putJson("/api/admin/reports/{$report->id}/approve");
-
-    $response->assertStatus(200);
-    $this->assertDatabaseHas('reports', [
-        'id' => $report->id,
-        'status' => 'approved',
-    ]);
-}
-```
-
 ## 12. Mappastruktúra
 
 ```

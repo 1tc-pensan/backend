@@ -1,621 +1,721 @@
-# UFO Bejelentő Rendszer – Backend Programozói Dokumentáció
+# UFO Észlelés Jelentő Rendszer – Backend Dokumentáció
 
-## 1. Áttekintés
-
-A backend egy **Laravel 12** keretrendszerre épülő RESTful API, amely paranormális jelenségek (UFO-észlelések, kísértetek, stb.) bejelentését, moderálását és statisztikai elemzését szolgálja. Az autentikációt **Laravel Sanctum** token-alapú hitelesítés biztosítja.
-
-| Jellemző           | Érték                       |
-| ------------------ | --------------------------- |
-| Keretrendszer      | Laravel 12                  |
-| PHP verzió         | ≥ 8.2                       |
-| Autentikáció       | Laravel Sanctum 4.x (Bearer token) |
-| Adatbázis          | Relációs (MySQL/SQLite)     |
-| Soft Delete        | Minden üzleti entitáson     |
-| API prefix         | `/api`                      |
-| CORS engedélyezett | `http://localhost:4200`, `http://10.1.47.9:4200` |
+**GitHub Repository**: [https://github.com/1tc-pensan/Vizsgaremek](https://github.com/1tc-pensan/Vizsgaremek)  
+**Elérési út a repóban**: `/backend`
 
 ---
 
-## 2. Telepítés és indítás
+## 1. Projekt áttekintés
+
+A backend egy **Laravel 12** keretrendszerre épülő REST API, amely paranormális jelenségek (UFO-észlelések, kísértetek, crop circle-ök stb.) bejelentését, moderálását és szavazás alapú hitelesség-értékelését biztosítja.
+
+### Fő technológiák
+
+| Technológia | Verzió | Szerepe |
+|---|---|---|
+| PHP | 8.2+ | Programnyelv |
+| Laravel | 12.x | Backend keretrendszer |
+| Laravel Sanctum | 4.3 | API token alapú autentikáció |
+| SQLite / MySQL | – | Adatbázis |
+| PHPUnit | 11.5 | Tesztelés |
+| Faker | 1.23 | Tesztadat-generálás |
+
+---
+
+## 2. Telepítés és futtatás
 
 ```bash
-# Függőségek telepítése
+# 1. Függőségek telepítése
 composer install
 
-# .env fájl létrehozása és kulcsgenerálás
+# 2. Környezeti fájl létrehozása
 cp .env.example .env
 php artisan key:generate
 
-# Migrációk futtatása
+# 3. Adatbázis migrálás és seedelés
 php artisan migrate
-
-# Seeder-ek futtatása (teszt adatok)
 php artisan db:seed
 
-# Storage symlink (képfeltöltéshez)
+# 4. Tárhelykapcsolat létrehozása (képek eléréséhez)
 php artisan storage:link
 
-# Fejlesztői szerver indítása
+# 5. Szerver indítása
 php artisan serve
-```
-
-Vagy egyetlen paranccsal:
-
-```bash
-composer setup
+# → http://localhost:8000/api
 ```
 
 ---
 
 ## 3. Adatbázis séma
 
-### 3.1. `users`
-
-| Oszlop              | Típus                    | Leírás                           |
-| ------------------- | ------------------------ | -------------------------------- |
-| `id`                | `bigint` PK, auto-inc   | Elsődleges kulcs                 |
-| `name`              | `string`                 | Felhasználónév                   |
-| `email`             | `string` unique          | E-mail cím                       |
-| `email_verified_at` | `timestamp` nullable     | E-mail megerősítés időpontja     |
-| `password`          | `string`                 | Hashelt jelszó                   |
-| `role`              | `enum('user','admin')`   | Szerep (alapértelmezett: `user`) |
-| `is_banned`         | `boolean`                | Tiltott-e (alapértelmezett: `false`) |
-| `remember_token`    | `string` nullable        | Remember token                   |
-| `created_at`        | `timestamp`              | Létrehozás dátuma                |
-| `updated_at`        | `timestamp`              | Módosítás dátuma                 |
-| `deleted_at`        | `timestamp` nullable     | Soft delete                      |
-
-### 3.2. `categories`
-
-| Oszlop        | Típus                  | Leírás                         |
-| ------------- | ---------------------- | ------------------------------ |
-| `id`          | `bigint` PK            | Elsődleges kulcs               |
-| `name`        | `string` unique        | Kategória neve                 |
-| `description` | `text` nullable        | Kategória leírása              |
-| `created_at`  | `timestamp`            | Létrehozás dátuma              |
-| `updated_at`  | `timestamp`            | Módosítás dátuma               |
-| `deleted_at`  | `timestamp` nullable   | Soft delete                    |
-
-### 3.3. `reports`
-
-| Oszlop        | Típus                                    | Leírás                                 |
-| ------------- | ---------------------------------------- | -------------------------------------- |
-| `id`          | `bigint` PK                              | Elsődleges kulcs                       |
-| `user_id`     | `bigint` FK → `users.id` (CASCADE)       | Bejelentő felhasználó                  |
-| `category_id` | `bigint` FK → `categories.id` (CASCADE)  | Kategória                              |
-| `title`       | `string`                                 | Bejelentés címe                        |
-| `description` | `text`                                   | Részletes leírás                       |
-| `latitude`    | `decimal(10,7)` nullable                 | Szélességi fok                         |
-| `longitude`   | `decimal(10,7)` nullable                 | Hosszúsági fok                         |
-| `date`        | `date`                                   | Az esemény dátuma                      |
-| `witnesses`   | `unsigned integer`                       | Tanúk száma (alapértelmezett: `0`)     |
-| `status`      | `enum('pending','approved','rejected')`  | Státusz (alapértelmezett: `pending`)   |
-| `created_at`  | `timestamp`                              | Létrehozás dátuma                      |
-| `updated_at`  | `timestamp`                              | Módosítás dátuma                       |
-| `deleted_at`  | `timestamp` nullable                     | Soft delete                            |
-
-### 3.4. `report_images`
-
-| Oszlop       | Típus                                   | Leírás                     |
-| ------------ | --------------------------------------- | -------------------------- |
-| `id`         | `bigint` PK                             | Elsődleges kulcs           |
-| `report_id`  | `bigint` FK → `reports.id` (CASCADE)    | Kapcsolódó bejelentés      |
-| `image_path` | `string`                                | Kép elérési útja (storage) |
-| `created_at` | `timestamp` nullable                    | Feltöltés dátuma           |
-| `deleted_at` | `timestamp` nullable                    | Soft delete                |
-
-### 3.5. `votes`
-
-| Oszlop       | Típus                                | Leírás                                     |
-| ------------ | ------------------------------------ | ------------------------------------------ |
-| `id`         | `bigint` PK                          | Elsődleges kulcs                           |
-| `report_id`  | `bigint` FK → `reports.id` (CASCADE) | Szavazat célja                             |
-| `user_id`    | `bigint` FK → `users.id` (CASCADE)   | Szavazó felhasználó                        |
-| `vote_type`  | `enum('up','down')`                  | Szavazat típusa                            |
-| `created_at` | `timestamp` nullable                 | Szavazat leadásának ideje                  |
-| `deleted_at` | `timestamp` nullable                 | Soft delete                                |
-
-> **Egyedi constraint:** `UNIQUE(report_id, user_id)` – egy felhasználó csak egyszer szavazhat egy bejelentésre.
-
-### 3.6. ER-diagram (szöveges)
+### ER-diagram (egyszerűsített)
 
 ```
-users 1───N reports N───1 categories
-  │                  │
-  │                  ├───N report_images
-  │                  │
-  └───N votes N──────┘
+┌──────────┐     1:N     ┌───────────┐     N:1     ┌────────────┐
+│  users   │────────────►│  reports   │◄────────────│ categories │
+│          │             │           │              │            │
+│ id       │             │ id        │              │ id         │
+│ name     │             │ user_id   │              │ name       │
+│ email    │             │ category_id│             │ description│
+│ password │             │ title     │              └────────────┘
+│ role     │             │ description│
+│ is_banned│             │ date      │
+└──────┬───┘             │ latitude  │
+       │                 │ longitude │
+       │   1:N           │ witnesses │
+       │                 │ status    │
+       │                 └─────┬─────┘
+       │                       │
+       │                  1:N  │  1:N
+       │              ┌────────┴────────┐
+       │              ▼                 ▼
+       │     ┌──────────────┐   ┌────────┐
+       │     │report_images │   │ votes  │
+       │     │              │   │        │
+       │     │ id           │   │ id     │
+       │     │ report_id    │   │report_id│
+       │     │ image_path   │   │user_id │◄────┘
+       │     └──────────────┘   │vote_type│
+       │                        └────────┘
+       └────────────────────────────┘
 ```
+
+### Táblák részletezése
+
+#### `users`
+| Mező | Típus | Leírás |
+|---|---|---|
+| `id` | bigint (PK) | Automatikus azonosító |
+| `name` | string | Felhasználónév |
+| `email` | string (unique) | E-mail cím |
+| `password` | string | Hashelt jelszó |
+| `role` | enum: `user`, `admin` | Jogosultsági szint |
+| `is_banned` | boolean | Kitiltott-e |
+| `created_at`, `updated_at` | timestamp | Időbélyegek |
+| `deleted_at` | timestamp (nullable) | Soft delete |
+
+#### `categories`
+| Mező | Típus | Leírás |
+|---|---|---|
+| `id` | bigint (PK) | Automatikus azonosító |
+| `name` | string (unique) | Kategória neve |
+| `description` | text (nullable) | Leírás |
+| `deleted_at` | timestamp (nullable) | Soft delete |
+
+#### `reports`
+| Mező | Típus | Leírás |
+|---|---|---|
+| `id` | bigint (PK) | Automatikus azonosító |
+| `user_id` | FK → users | Létrehozó felhasználó |
+| `category_id` | FK → categories | Kategória |
+| `title` | string | Bejelentés címe |
+| `description` | text | Részletes leírás |
+| `date` | date | Az észlelés dátuma |
+| `latitude` | decimal (nullable) | GPS szélesség (-90 – 90) |
+| `longitude` | decimal (nullable) | GPS hosszúság (-180 – 180) |
+| `witnesses` | integer (nullable) | Tanúk száma |
+| `status` | enum: `pending`, `approved`, `rejected` | Státusz (alapért.: pending) |
+| `deleted_at` | timestamp (nullable) | Soft delete |
+
+#### `report_images`
+| Mező | Típus | Leírás |
+|---|---|---|
+| `id` | bigint (PK) | Automatikus azonosító |
+| `report_id` | FK → reports | Kapcsolódó bejelentés |
+| `image_path` | string | Fájl elérési útja |
+| `created_at` | timestamp | Feltöltés időpontja |
+| `deleted_at` | timestamp (nullable) | Soft delete |
+
+#### `votes`
+| Mező | Típus | Leírás |
+|---|---|---|
+| `id` | bigint (PK) | Automatikus azonosító |
+| `report_id` | FK → reports | Szavazott bejelentés |
+| `user_id` | FK → users | Szavazó felhasználó |
+| `vote_type` | enum: `up`, `down` | Szavazat típusa |
+| `created_at` | timestamp | Szavazás időpontja |
+| `deleted_at` | timestamp (nullable) | Soft delete |
+
+> **Unique constraint**: Egy felhasználó egy bejelentésre csak egyetlen szavazatot adhat (`report_id` + `user_id`).
 
 ---
 
-## 4. Modellek
+## 4. Modellek és kapcsolatok
 
-### 4.1. `User` (`App\Models\User`)
-
-- **Trait-ek:** `HasApiTokens`, `HasFactory`, `Notifiable`, `SoftDeletes`
-- **Fillable:** `name`, `email`, `password`, `role`, `is_banned`
-- **Hidden:** `password`, `remember_token`
-- **Cast-ok:** `email_verified_at` → `datetime`, `password` → `hashed`, `is_banned` → `boolean`
-- **Relációk:**
-  - `reports(): HasMany → Report`
-  - `votes(): HasMany → Vote`
-- **Metódusok:**
-  - `isAdmin(): bool` – `true` ha `role === 'admin'`
-
-### 4.2. `Report` (`App\Models\Report`)
-
-- **Trait-ek:** `HasFactory`, `SoftDeletes`
-- **Fillable:** `user_id`, `category_id`, `title`, `description`, `latitude`, `longitude`, `date`, `witnesses`, `status`
-- **Cast-ok:** `date` → `date`, `latitude` → `float`, `longitude` → `float`, `witnesses` → `integer`
-- **Relációk:**
-  - `user(): BelongsTo → User`
-  - `category(): BelongsTo → Category`
-  - `images(): HasMany → ReportImage`
-  - `votes(): HasMany → Vote`
-- **Accessor-ok:**
-  - `credibility_score` – `upvotes - downvotes` (számított)
-
-### 4.3. `Category` (`App\Models\Category`)
-
-- **Trait-ek:** `HasFactory`, `SoftDeletes`
-- **Fillable:** `name`, `description`
-- **Relációk:**
-  - `reports(): HasMany → Report`
-
-### 4.4. `ReportImage` (`App\Models\ReportImage`)
-
-- **Trait-ek:** `SoftDeletes`
-- **Fillable:** `report_id`, `image_path`
-- **Timestamps:** csak `created_at` (kézi definiálás)
-- **Appended attribútumok:** `image_url`
-- **Accessor-ok:**
-  - `image_url` – teljes publikus URL a `Storage::disk('public')` segítségével
-- **Relációk:**
-  - `report(): BelongsTo → Report`
-
-### 4.5. `Vote` (`App\Models\Vote`)
-
-- **Trait-ek:** `SoftDeletes`
-- **Fillable:** `report_id`, `user_id`, `vote_type`
-- **Timestamps:** csak `created_at` (kézi definiálás)
-- **Relációk:**
-  - `report(): BelongsTo → Report`
-  - `user(): BelongsTo → User`
-
----
-
-## 5. Middleware
-
-### 5.1. `AdminMiddleware` (`admin`)
-
-Ellenőrzi, hogy a bejelentkezett felhasználó rendelkezik-e `admin` szereppel. Ha nem, `403 Forbidden` választ ad.
-
-### 5.2. `CheckBanned` (`check.banned`)
-
-Ellenőrzi, hogy a felhasználó tiltva van-e (`is_banned === true`). Ha igen, `403 Forbidden` választ ad.
-
-### 5.3. Middleware regisztráció (`bootstrap/app.php`)
-
+### User
 ```php
-$middleware->use([
-    \Illuminate\Http\Middleware\HandleCors::class,
-]);
-$middleware->alias([
-    'admin'        => \App\Http\Middleware\AdminMiddleware::class,
-    'check.banned' => \App\Http\Middleware\CheckBanned::class,
-]);
+// Kapcsolatok
+reports(): HasMany → Report
+votes(): HasMany → Vote
+
+// Segédfüggvény
+isAdmin(): bool  // role === 'admin'
+```
+
+### Report
+```php
+// Kapcsolatok
+user(): BelongsTo → User
+category(): BelongsTo → Category
+images(): HasMany → ReportImage
+votes(): HasMany → Vote
+
+// Kalkulált mező
+credibility_score = upvote-ok száma − downvote-ok száma
+```
+
+### Category
+```php
+reports(): HasMany → Report
+// Lekérdezéseknél withCount('reports') a bejelentések számáért
+```
+
+### ReportImage
+```php
+report(): BelongsTo → Report
+image_url: accessor → Storage::disk('public')->url(image_path)
+```
+
+### Vote
+```php
+report(): BelongsTo → Report
+user(): BelongsTo → User
 ```
 
 ---
 
-## 6. Form Request validáció
+## 5. API végpontok
 
-### 6.1. `RegisterRequest`
+### 5.1 Autentikáció
 
-| Mező       | Szabályok                                |
-| ---------- | ---------------------------------------- |
-| `name`     | required, string, max:255               |
-| `email`    | required, email, unique:users,email     |
-| `password` | required, string, min:8, confirmed      |
+| Metódus | Végpont | Auth | Leírás |
+|---|---|---|---|
+| `POST` | `/api/register` | ✗ | Regisztráció |
+| `POST` | `/api/login` | ✗ | Bejelentkezés → Bearer token |
+| `POST` | `/api/logout` | ✓ | Kijelentkezés (token törlés) |
+| `GET` | `/api/user` | ✓ | Aktuális felhasználó adatai |
 
-### 6.2. `StoreReportRequest`
-
-| Mező          | Szabályok                                     |
-| ------------- | --------------------------------------------- |
-| `category_id` | required, exists:categories,id               |
-| `title`       | required, string, max:255                    |
-| `description` | required, string                             |
-| `latitude`    | nullable, numeric, between:-90,90            |
-| `longitude`   | nullable, numeric, between:-180,180          |
-| `date`        | required, date, before_or_equal:today        |
-| `witnesses`   | nullable, integer, min:0                     |
-
-> **prepareForValidation:** üres stringek → `null` konverzió a `witnesses`, `latitude`, `longitude` mezőkre.
-
-### 6.3. `UpdateReportRequest`
-
-Azonos az `StoreReportRequest`-tel, de minden mező `sometimes` (opcionális).
-
-### 6.4. `StoreCategoryRequest`
-
-| Mező          | Szabályok                                |
-| ------------- | ---------------------------------------- |
-| `name`        | required, string, max:255, unique:categories,name |
-| `description` | nullable, string                         |
-
-### 6.5. `UpdateCategoryRequest`
-
-Azonos a `StoreCategoryRequest`-tel, de `name` → `sometimes` és a unique szabály ignorálja az aktuális kategóriát.
-
-### 6.6. `VoteRequest`
-
-| Mező        | Szabályok            |
-| ----------- | -------------------- |
-| `vote_type` | required, in:up,down |
-
----
-
-## 7. API végpontok
-
-Az összes végpont prefixe: `/api`
-
-### 7.1. Publikus végpontok (autentikáció nélkül)
-
-#### Autentikáció
-
-| Metódus | Útvonal         | Controller                   | Leírás                   |
-| ------- | --------------- | ----------------------------| ------------------------ |
-| POST    | `/register`     | `AuthController@register`   | Regisztráció             |
-| POST    | `/login`        | `AuthController@login`      | Bejelentkezés            |
-
-**POST `/api/register`**
-
-- **Body:** `{ name, email, password, password_confirmation }`
-- **Válasz (201):** `{ message, user, token }`
-
-**POST `/api/login`**
-
-- **Body:** `{ email, password }`
-- **Válasz (200):** `{ message, user, token }`
-- **Hiba (403):** tiltott felhasználó; **(422):** hibás adatok
-
-#### Bejelentések
-
-| Metódus | Útvonal                              | Controller                    | Leírás                    |
-| ------- | ------------------------------------ | ----------------------------- | ------------------------- |
-| GET     | `/reports`                           | `ReportController@index`      | Jóváhagyott bejelentések  |
-| GET     | `/reports/{report}`                  | `ReportController@show`       | Bejelentés részletei      |
-| GET     | `/map/reports`                       | `ReportController@mapReports` | Térkép adatok             |
-| GET     | `/reports/{report}/credibility`      | `VoteController@credibility`  | Hitelesség pontszám       |
-| GET     | `/reports/{report}/images`           | `ImageController@index`       | Képek listája             |
-
-**GET `/api/reports`** – Szűrési és rendezési paraméterek:
-
-| Paraméter     | Típus    | Leírás                                    |
-| ------------- | -------- | ----------------------------------------- |
-| `category_id` | integer  | Szűrés kategória ID-ra                    |
-| `date_from`   | date     | Szűrés: esemény dátuma ettől              |
-| `date_to`     | date     | Szűrés: esemény dátuma eddig              |
-| `sort_by`     | string   | `created_at` (alapértelmezett), `date`, `title`, `credibility` |
-| `sort_dir`    | string   | `desc` (alapértelmezett) vagy `asc`       |
-
-**GET `/api/reports/{report}`** – Nem jóváhagyott bejelentés csak a tulajdonos vagy admin számára elérhető.
-
-**GET `/api/map/reports`** – Csak `approved` státuszú, koordinátákkal rendelkező bejelentéseket ad vissza: `id`, `title`, `latitude`, `longitude`, `date`, `category_id`, `status`.
-
-**GET `/api/reports/{report}/credibility`** – Válasz: `{ upvotes, downvotes, credibility_score }`
-
-#### Kategóriák
-
-| Metódus | Útvonal                    | Controller                    | Leírás               |
-| ------- | -------------------------- | ----------------------------- | -------------------- |
-| GET     | `/categories`              | `CategoryController@index`    | Kategóriák listája   |
-| GET     | `/categories/{category}`   | `CategoryController@show`     | Kategória részletei  |
-
-#### Statisztikák
-
-| Metódus | Útvonal        | Controller                     | Leírás                |
-| ------- | -------------- | ------------------------------ | --------------------- |
-| GET     | `/statistics`  | `StatisticsController@index`   | Publikus statisztikák |
-
-**Válasz tartalmazza:** `total_reports`, `total_users`, `total_votes`, `by_status`, `by_category`, `top_credible` (top 5), `recent` (utolsó 5).
-
----
-
-### 7.2. Védett végpontok (Bearer token szükséges)
-
-> Middleware: `auth:sanctum`, `check.banned`
->
-> Header: `Authorization: Bearer {token}`
-
-#### Autentikáció
-
-| Metódus | Útvonal    | Controller                 | Leírás            |
-| ------- | ---------- | -------------------------- | ----------------- |
-| POST    | `/logout`  | `AuthController@logout`    | Kijelentkezés     |
-| GET     | `/user`    | `AuthController@user`      | Aktuális felhasználó |
-
-#### Profil
-
-| Metódus | Útvonal                     | Controller                        | Leírás                           |
-| ------- | --------------------------- | --------------------------------- | -------------------------------- |
-| GET     | `/profile`                  | `ProfileController@show`          | Saját profil (reports_count-tal) |
-| PUT     | `/profile`                  | `ProfileController@update`        | Profil módosítás                 |
-| GET     | `/users/{userId}/reports`   | `ProfileController@userReports`   | Adott felhasználó bejelentései   |
-
-**PUT `/api/profile`** – Módosítható mezők:
-
-| Mező       | Szabályok                                   |
-| ---------- | ------------------------------------------- |
-| `name`     | sometimes, string, max:255                 |
-| `email`    | sometimes, email, unique (saját ID kizárva) |
-| `password` | sometimes, string, min:8, confirmed        |
-
-#### Bejelentések kezelése
-
-| Metódus | Útvonal              | Controller                 | Leírás             |
-| ------- | -------------------- | -------------------------- | ------------------ |
-| POST    | `/reports`           | `ReportController@store`   | Új bejelentés      |
-| PUT     | `/reports/{report}`  | `ReportController@update`  | Bejelentés szerkesztése |
-| DELETE  | `/reports/{report}`  | `ReportController@destroy` | Bejelentés törlése |
-
-> Szerkesztés és törlés: csak a tulajdonos vagy admin végezheti.
-> Új bejelentés státusza automatikusan `pending`.
-
-#### Képkezelés
-
-| Metódus | Útvonal                        | Controller               | Leírás             |
-| ------- | ------------------------------ | ------------------------ | ------------------ |
-| POST    | `/reports/{report}/images`     | `ImageController@store`  | Képek feltöltése   |
-| DELETE  | `/images/{image}`              | `ImageController@destroy`| Kép törlése        |
-
-**POST `/api/reports/{report}/images`** – `multipart/form-data`
-
-| Mező       | Szabályok                                                    |
-| ---------- | ------------------------------------------------------------ |
-| `images`   | required, array, max:10                                     |
-| `images.*` | required, image, mimes:jpeg,png,jpg,gif,webp, max:5120 (5 MB) |
-
-> Tárolás: `storage/app/public/report_images/`
-> Publikus elérés: `storage/report_images/{filename}`
-
-#### Szavazás
-
-| Metódus | Útvonal                    | Controller              | Leírás          |
-| ------- | -------------------------- | ----------------------- | --------------- |
-| POST    | `/reports/{report}/vote`   | `VoteController@vote`   | Szavazás        |
-
-**Szavazási logika:**
-1. Ha a felhasználó még nem szavazott → szavazat létrehozása
-2. Ha azonos típusú szavazat létezik → szavazat **visszavonása** (forceDelete)
-3. Ha ellentétes szavazat létezik → szavazat **módosítása**
-
-**Válasz:** `{ message, upvotes, downvotes, credibility_score }`
-
----
-
-### 7.3. Admin végpontok
-
-> Middleware: `auth:sanctum`, `check.banned`, `admin`
->
-> Prefix: `/api/admin`
-
-#### Bejelentés moderálás
-
-| Metódus | Útvonal                            | Controller                       | Leírás                |
-| ------- | ---------------------------------- | -------------------------------- | --------------------- |
-| GET     | `/admin/reports`                   | `Admin\ReportController@index`   | Összes bejelentés     |
-| DELETE  | `/admin/reports/{report}`          | `Admin\ReportController@destroy` | Bejelentés törlése    |
-| PUT     | `/admin/reports/{report}/approve`  | `Admin\ReportController@approve` | Jóváhagyás            |
-| PUT     | `/admin/reports/{report}/reject`   | `Admin\ReportController@reject`  | Elutasítás            |
-
-**GET `/api/admin/reports`** – Opcionális szűrés: `?status=pending|approved|rejected`
-
-#### Felhasználó kezelés
-
-| Metódus | Útvonal                     | Controller                     | Leírás                   |
-| ------- | --------------------------- | ------------------------------ | ------------------------ |
-| GET     | `/admin/users`              | `Admin\UserController@index`   | Felhasználók listája     |
-| PUT     | `/admin/users/{user}/ban`   | `Admin\UserController@ban`     | Felhasználó tiltása      |
-| PUT     | `/admin/users/{user}/unban` | `Admin\UserController@unban`   | Tiltás feloldása         |
-
-**GET `/api/admin/users`** – Keresés: `?search=` (név vagy email részleges egyezés)
-
-> Admin felhasználó nem tiltható (`422` hiba).
-
-#### Kategória kezelés (Admin)
-
-| Metódus | Útvonal                          | Controller                      | Leírás            |
-| ------- | -------------------------------- | ------------------------------- | ----------------- |
-| POST    | `/admin/categories`              | `CategoryController@store`      | Kategória létrehozás |
-| PUT     | `/admin/categories/{category}`   | `CategoryController@update`     | Kategória módosítás  |
-| DELETE  | `/admin/categories/{category}`   | `CategoryController@destroy`    | Kategória törlés     |
-
-#### Admin statisztikák
-
-| Metódus | Útvonal              | Controller                         | Leírás                |
-| ------- | -------------------- | ---------------------------------- | --------------------- |
-| GET     | `/admin/statistics`  | `Admin\StatisticsController@index` | Részletes statisztika |
-
-**Válasz:**
+**Regisztráció – példa kérés:**
 ```json
+POST /api/register
 {
-  "reports": { "total", "pending", "approved", "rejected" },
-  "users": { "total", "banned" },
-  "total_votes": 0,
-  "total_categories": 0,
-  "top_reports": [],
-  "reports_by_category": []
+    "name": "Teszt Felhasználó",
+    "email": "teszt@example.com",
+    "password": "password",
+    "password_confirmation": "password"
 }
 ```
 
----
-
-## 8. Autentikáció
-
-### 8.1. Token kezelés
-
-A rendszer **Laravel Sanctum** personal access token-eket használ.
-
-- **Regisztráció / Bejelentkezés** után a válaszban `token` mező tartalmazza a Bearer tokent
-- **Védett végpontok** elérése: `Authorization: Bearer {token}` header
-- **Kijelentkezés:** az aktuális token törlése
-- **Token név:** `api-token`
-
-### 8.2. Middleware lánc
-
-```
-Publikus végpontok:
-  → HandleCors → Controller
-
-Védett végpontok:
-  → HandleCors → auth:sanctum → check.banned → Controller
-
-Admin végpontok:
-  → HandleCors → auth:sanctum → check.banned → admin → Controller
-```
-
----
-
-## 9. Mappastruktúra
-
-```
-app/
-├── Http/
-│   ├── Controllers/
-│   │   ├── Controller.php              # Alap controller
-│   │   └── Api/
-│   │       ├── AuthController.php      # Regisztráció, login, logout
-│   │       ├── CategoryController.php  # Kategória CRUD
-│   │       ├── ImageController.php     # Kép feltöltés/törlés
-│   │       ├── ProfileController.php   # Profil kezelés
-│   │       ├── ReportController.php    # Bejelentés CRUD + térkép
-│   │       ├── StatisticsController.php# Publikus statisztikák
-│   │       ├── VoteController.php      # Szavazás + hitelesség
-│   │       └── Admin/
-│   │           ├── ReportController.php    # Moderálás
-│   │           ├── StatisticsController.php# Admin statisztikák
-│   │           └── UserController.php      # Felhasználó kezelés
-│   ├── Middleware/
-│   │   ├── AdminMiddleware.php         # Admin jogosultság ellenőrzés
-│   │   └── CheckBanned.php            # Tiltott felhasználó ellenőrzés
-│   └── Requests/
-│       ├── RegisterRequest.php
-│       ├── StoreCategoryRequest.php
-│       ├── StoreReportRequest.php
-│       ├── UpdateCategoryRequest.php
-│       ├── UpdateReportRequest.php
-│       └── VoteRequest.php
-├── Models/
-│   ├── Category.php
-│   ├── Report.php
-│   ├── ReportImage.php
-│   ├── User.php
-│   └── Vote.php
-└── Providers/
-    └── AppServiceProvider.php
-database/
-├── migrations/                         # Adatbázis migrációk
-├── seeders/
-│   ├── DatabaseSeeder.php             # Fő seeder
-│   ├── CategorySeeder.php            # 9 kategória
-│   ├── UserSeeder.php                # Admin + teszt felhasználók
-│   ├── ReportSeeder.php              # Teszt bejelentések
-│   └── VoteSeeder.php                # Teszt szavazatok
-routes/
-└── api.php                            # Összes API útvonal
-```
-
----
-
-## 10. Seeder adatok
-
-### 10.1. Kategóriák
-
-| Kategória            | Leírás                                                  |
-| -------------------- | ------------------------------------------------------- |
-| UFO Észlelés         | Azonosítatlan repülő tárgyak és légi jelenségek         |
-| Földönkívüli         | Idegen lények találkozásai                               |
-| Kísértet / Szellem   | Természetfeletti entitások és kísértett helyek           |
-| Crop Circle          | Rejtélyes búzamező alakzatok                             |
-| Bigfoot / Sasquatch  | Nagy emberszabású lény észlelések                        |
-| Tengeri Szörny       | Azonosítatlan vízi lények                                |
-| Poltergeist          | Zajokkal és tárgyak mozgásával járó jelenségek           |
-| Időhurok / Anomália  | Idővel kapcsolatos furcsa tapasztalatok                  |
-| Egyéb Paranormális   | Minden más megmagyarázhatatlan jelenség                  |
-
-### 10.2. Teszt felhasználók
-
-| Név          | Email                | Jelszó     | Szerep |
-| ------------ | -------------------- | ---------- | ------ |
-| Admin        | admin@ufo.hu         | `password` | admin  |
-| Patrik       | patrik@ufo.hu        | `password` | user   |
-| Odett        | odett@ufo.hu         | `password` | user   |
-| Kiss Péter   | kisspeter@ufo.hu     | `password` | user   |
-| Horváth Éva  | horvatheva@ufo.hu    | `password` | user   |
-| Soós Elemér  | soselemer@ufo.hu     | `password` | user   |
-| Ali Mihály   | alimihaly@ufo.hu     | `password` | user   |
-
----
-
-## 11. Hibakezelés
-
-Az API egységes JSON válaszokat ad minden hibánál:
-
-| HTTP kód | Jelentés                                            |
-| -------- | --------------------------------------------------- |
-| `200`    | Sikeres művelet                                     |
-| `201`    | Sikeres létrehozás                                  |
-| `403`    | Hozzáférés megtagadva (tiltott user / nem admin / nem tulajdonos) |
-| `404`    | Erőforrás nem található / nem elérhető bejelentés   |
-| `422`    | Validációs hiba                                     |
-
-Validációs hiba válasz formátum:
+**Bejelentkezés – példa válasz:**
 ```json
 {
-  "message": "...",
-  "errors": {
-    "mező": ["Hibaüzenet"]
-  }
+    "user": {
+        "id": 1,
+        "name": "Teszt Felhasználó",
+        "email": "teszt@example.com",
+        "role": "user"
+    },
+    "token": "1|abc123def456..."
 }
 ```
 
+### 5.2 Bejelentések (Reports)
+
+| Metódus | Végpont | Auth | Leírás |
+|---|---|---|---|
+| `GET` | `/api/reports` | ✗ | Jóváhagyott bejelentések listája |
+| `GET` | `/api/reports/{id}` | ✗* | Egy bejelentés részletei |
+| `POST` | `/api/reports` | ✓ | Új bejelentés létrehozása |
+| `PUT` | `/api/reports/{id}` | ✓ | Bejelentés szerkesztése (tulajdonos/admin) |
+| `DELETE` | `/api/reports/{id}` | ✓ | Bejelentés törlése (tulajdonos/admin) |
+| `GET` | `/api/map/reports` | ✗ | Térképen megjeleníthető bejelentések |
+
+> *Nem jóváhagyott bejelentést csak a tulajdonos vagy admin tekintheti meg.
+
+**Szűrési lehetőségek** (`GET /api/reports`):
+| Paraméter | Típus | Leírás |
+|---|---|---|
+| `category_id` | integer | Kategória szerinti szűrés |
+| `date_from` | date | Dátum alsó határ |
+| `date_to` | date | Dátum felső határ |
+| `sort_by` | string | Rendezés: `created_at`, `date`, `title`, `credibility` |
+| `sort_dir` | string | Irány: `asc` / `desc` |
+
+### 5.3 Képkezelés (Images)
+
+| Metódus | Végpont | Auth | Leírás |
+|---|---|---|---|
+| `GET` | `/api/reports/{id}/images` | ✗ | Bejelentés képei |
+| `POST` | `/api/reports/{id}/images` | ✓ | Képek feltöltése (max 10 db, max 5 MB/db) |
+| `DELETE` | `/api/images/{id}` | ✓ | Kép törlése (tulajdonos/admin) |
+
+**Feltöltés – korlátozások:**
+- Maximálisan 10 fájl egyszerre
+- Maximális fájlméret: 5 MB/kép
+- Engedélyezett formátumok: `jpeg`, `png`, `gif`, `webp`
+- Tárolás: `storage/app/public/report_images/`
+
+### 5.4 Szavazás (Votes)
+
+| Metódus | Végpont | Auth | Leírás |
+|---|---|---|---|
+| `POST` | `/api/reports/{id}/vote` | ✓ | Szavazás (up/down) |
+| `GET` | `/api/reports/{id}/credibility` | ✗ | Hitelesség pontszám lekérése |
+
+**Szavazás logika:**
+1. Új szavazat → létrejön
+2. Ugyanaz a szavazat újra → visszavonás (törlés)
+3. Ellenkező szavazat → módosítás
+
+### 5.5 Kategóriák (Categories)
+
+| Metódus | Végpont | Auth | Leírás |
+|---|---|---|---|
+| `GET` | `/api/categories` | ✗ | Kategóriák listája (bejelentés számmal) |
+| `GET` | `/api/categories/{id}` | ✗ | Kategória részletei |
+| `POST` | `/api/admin/categories` | Admin | Új kategória |
+| `PUT` | `/api/admin/categories/{id}` | Admin | Kategória szerkesztése |
+| `DELETE` | `/api/admin/categories/{id}` | Admin | Kategória törlése |
+
+### 5.6 Profil (Profile)
+
+| Metódus | Végpont | Auth | Leírás |
+|---|---|---|---|
+| `GET` | `/api/profile` | ✓ | Profil lekérése (bejelentések számával) |
+| `PUT` | `/api/profile` | ✓ | Profil módosítása (név, email, jelszó) |
+| `GET` | `/api/users/{userId}/reports` | ✓ | Felhasználó bejelentései |
+
+### 5.7 Statisztikák (Statistics)
+
+| Metódus | Végpont | Auth | Leírás |
+|---|---|---|---|
+| `GET` | `/api/statistics` | ✗ | Publikus statisztikák |
+| `GET` | `/api/admin/statistics` | Admin | Admin statisztikák |
+
+**Publikus statisztikák tartalma:**
+- Összes jóváhagyott bejelentés száma
+- Összes felhasználó száma
+- Összes szavazat száma
+- Státusz szerinti megoszlás
+- Kategória szerinti bontás
+- Top 5 leghitelesebb bejelentés
+- Legutóbbi bejelentések
+
+### 5.8 Admin – Bejelentés moderálás
+
+| Metódus | Végpont | Auth | Leírás |
+|---|---|---|---|
+| `GET` | `/api/admin/reports` | Admin | Összes bejelentés (státusz szűréssel) |
+| `PUT` | `/api/admin/reports/{id}/approve` | Admin | Jóváhagyás |
+| `PUT` | `/api/admin/reports/{id}/reject` | Admin | Elutasítás |
+| `DELETE` | `/api/admin/reports/{id}` | Admin | Törlés |
+
+### 5.9 Admin – Felhasználó kezelés
+
+| Metódus | Végpont | Auth | Leírás |
+|---|---|---|---|
+| `GET` | `/api/admin/users` | Admin | Felhasználók listája (keresés: név/email) |
+| `PUT` | `/api/admin/users/{id}/ban` | Admin | Felhasználó kitiltása |
+| `PUT` | `/api/admin/users/{id}/unban` | Admin | Kitiltás feloldása |
+
+> Admin felhasználót nem lehet kitiltani.
+
 ---
 
-## 12. Fájltárolás
+## 6. Middleware (Köztes szoftver)
 
-- **Disk:** `public` (`storage/app/public`)
-- **Képek útvonala:** `report_images/{generált_fájlnév}`
-- **Publikus elérés:** `{APP_URL}/storage/report_images/{fájlnév}` (szimbolikus link szükséges: `php artisan storage:link`)
-- **Maximális fájlméret:** 5 MB/kép
-- **Engedélyezett formátumok:** `jpeg`, `png`, `jpg`, `gif`, `webp`
-- **Egyszerre feltölthető:** max 10 kép
+### AdminMiddleware
+- Ellenőrzi, hogy a bejelentkezett felhasználó admin-e (`isAdmin()`)
+- **403 Forbidden** válasz, ha nem admin
+- Az `/api/admin/*` útvonalakra van regisztrálva
+
+### CheckBanned
+- Ellenőrzi az `is_banned` flag-et
+- **403 Forbidden** válasz kitiltott felhasználónak
+- Minden `auth:sanctum` csoportba tartozó végpontra alkalmazva
 
 ---
 
-## 13. CORS konfiguráció
+## 7. Validáció (Form Requests)
 
-```php
-'paths'           => ['api/*', 'sanctum/csrf-cookie'],
-'allowed_methods' => ['*'],
-'allowed_origins' => ['http://localhost:4200', 'http://10.1.47.9:4200'],
-'allowed_headers' => ['*'],
+### RegisterRequest
+```
+name:     required | string | max:255
+email:    required | email  | unique:users
+password: required | string | min:8 | confirmed
+```
+
+### StoreReportRequest
+```
+category_id: required | exists:categories,id
+title:       required | string | max:255
+description: required | string
+date:        required | date   | before_or_equal:today
+latitude:    nullable | numeric | between:-90,90
+longitude:   nullable | numeric | between:-180,180
+witnesses:   nullable | integer | min:0
+```
+
+### UpdateReportRequest
+- Ugyanaz, mint a StoreReportRequest, de minden mező `sometimes` (részleges módosítás)
+
+### StoreCategoryRequest
+```
+name:        required | string | max:255 | unique:categories
+description: nullable | string
+```
+
+### UpdateCategoryRequest
+```
+name:        sometimes | string | max:255 | unique:categories (ignore:current)
+description: nullable  | string
+```
+
+### VoteRequest
+```
+vote_type: required | in:up,down
 ```
 
 ---
 
-## 14. Tesztelés
+## 8. Tesztadat (Seeder-ek)
+
+A projekt előre konfigurált tesztadatokkal rendelkezik, amelyek a `php artisan db:seed` paranccsal tölthetők be.
+
+### Felhasználók
+
+| Email | Jelszó | Jogkör |
+|---|---|---|
+| admin@ufo.hu | password | Admin |
+| patrik@ufo.hu | password | Felhasználó |
+| odett@ufo.hu | password | Felhasználó |
+| kisspeter@ufo.hu | password | Felhasználó |
+| horvatheva@ufo.hu | password | Felhasználó |
+| soselemer@ufo.hu | password | Felhasználó |
+| alimihaly@ufo.hu | password | Felhasználó |
+
+### Kategóriák (9 db)
+1. UFO Észlelés
+2. Földönkívüli
+3. Kísértet / Szellem
+4. Crop Circle
+5. Bigfoot / Sasquatch
+6. Tengeri Szörny
+7. Poltergeist
+8. Időhurok / Anomália
+9. Egyéb Paranormális
+
+### Bejelentések (12 db)
+Valós magyar helyszínek GPS-koordinátákkal (Debrecen, Pécs, Bucsa, Mátra stb.), vegyes státuszokkal és szavazatokkal.
+
+---
+
+## 9. Tesztelés Postman-nel
+
+A projekthez tartozik egy **Postman gyűjtemény** (`ufo-api.postman_collection.json`), amely az összes végpont tesztelésére szolgál.
+
+### Importálás
+1. Nyisd meg a Postmant
+2. **Import** → válaszd ki a `backend/ufo-api.postman_collection.json` fájlt
+3. A gyűjtemény automatikusan betöltődik
+
+### Gyűjtemény struktúra
+
+A gyűjtemény az alábbi mappákra tagolódik:
+
+| Mappa | Tartalom |
+|---|---|
+| **Auth** | Regisztráció, bejelentkezés, kijelentkezés, aktuális felhasználó |
+| **Reports** | CRUD műveletek bejelentésekre, térkép végpont |
+| **Images** | Képek listázása, feltöltése, törlése |
+| **Voting** | Szavazás és hitelesség lekérése |
+| **Categories** | Kategóriák listázása és részletek |
+| **Profile** | Profiladatok és felhasználó bejelentései |
+| **Admin** | Moderálás, felhasználó kezelés, admin statisztikák, kategória CRUD |
+
+### Változók (Variables)
+
+| Változó | Alapértelmezett | Leírás |
+|---|---|---|
+| `base_url` | `http://localhost:8000/api` | API alap URL |
+| `token` | – | Felhasználói Bearer token |
+| `admin_token` | – | Admin Bearer token |
+| `report_id` | – | Aktuális bejelentés ID |
+| `category_id` | – | Aktuális kategória ID |
+| `user_id` | – | Aktuális felhasználó ID |
+| `image_id` | – | Aktuális kép ID |
+
+> A tesztszkriptek automatikusan mentik a tokeneket és ID-ket a válaszokból.
+
+### Tesztelési folyamat
+
+```
+1. Login (admin@ufo.hu / password)
+       │
+       ▼
+   Token automatikusan mentve → admin_token
+       │
+       ▼
+2. Reports → GET /api/reports
+       → Listázás, szűrés tesztelése
+       │
+       ▼
+3. Reports → POST /api/reports
+       → Új bejelentés létrehozása
+       → report_id automatikusan mentve
+       │
+       ▼
+4. Images → POST /api/reports/{id}/images
+       → Képek feltöltése a bejelentéshez
+       │
+       ▼
+5. Voting → POST /api/reports/{id}/vote
+       → Szavazás tesztelése
+       │
+       ▼
+6. Admin → PUT /api/admin/reports/{id}/approve
+       → Bejelentés jóváhagyása
+       │
+       ▼
+7. Admin Users → GET/PUT
+       → Felhasználó tiltás tesztelése
+```
+
+### Példa: Bejelentkezés tesztelése
+
+**Kérés:**
+```
+POST {{base_url}}/login
+Content-Type: application/json
+
+{
+    "email": "admin@ufo.hu",
+    "password": "password"
+}
+```
+
+**Elvárt válasz (200 OK):**
+```json
+{
+    "user": {
+        "id": 1,
+        "name": "Admin",
+        "email": "admin@ufo.hu",
+        "role": "admin",
+        "is_banned": false
+    },
+    "token": "1|aBcDeFgHiJkLmNoPqRsTuVwXyZ..."
+}
+```
+
+### Példa: Bejelentés létrehozás tesztelése
+
+**Kérés:**
+```
+POST {{base_url}}/reports
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "category_id": 1,
+    "title": "Fényes objektum az égen",
+    "description": "Háromszög alakú, csendes...",
+    "date": "2026-03-15",
+    "latitude": 47.5316,
+    "longitude": 21.6273,
+    "witnesses": 3
+}
+```
+
+**Elvárt válasz (201 Created):**
+```json
+{
+    "id": 13,
+    "title": "Fényes objektum az égen",
+    "status": "pending",
+    "category": { "id": 1, "name": "UFO Észlelés" },
+    "user": { "id": 2, "name": "Patrik" }
+}
+```
+
+### Hibás kérés tesztelés
+
+**Hiányzó mezők (422 Unprocessable Entity):**
+```json
+POST /api/reports
+{
+    "title": "Teszt"
+}
+→ Válasz:
+{
+    "message": "Validation failed",
+    "errors": {
+        "category_id": ["A kategória mező kitöltése kötelező."],
+        "description": ["A leírás mező kitöltése kötelező."],
+        "date": ["A dátum mező kitöltése kötelező."]
+    }
+}
+```
+
+**Jogosulatlan hozzáférés (401 Unauthorized):**
+```
+POST /api/reports (token nélkül)
+→ { "message": "Unauthenticated." }
+```
+
+**Admin végpont nem admin felhasználóval (403 Forbidden):**
+```
+PUT /api/admin/reports/1/approve
+Authorization: Bearer {{user_token}}
+→ { "message": "Forbidden." }
+```
+
+---
+
+## 10. Feature tesztek
+
+A projekt a Laravel beépített PHPUnit tesztelési keretrendszerét használja.
+
+### Tesztek futtatása
 
 ```bash
-# Összes teszt futtatása
 php artisan test
-
-# Vagy közvetlenül PHPUnit-tal
+# vagy
 ./vendor/bin/phpunit
 ```
 
+### Tesztelendő területek
+
+| Terület | Tesztelési szempont |
+|---|---|
+| **Autentikáció** | Regisztráció, bejelentkezés, token generálás, kijelentkezés |
+| **Bejelentések CRUD** | Létrehozás, olvasás, módosítás, törlés, jogosultság ellenőrzés |
+| **Képfeltöltés** | Fájlméret, formátum, maximum darabszám validáció |
+| **Szavazás** | Up/down, visszavonás, módosítás, unique constraint |
+| **Admin műveletek** | Jóváhagyás, elutasítás, tiltás, jogosultság ellenőrzés |
+| **Validáció** | Kötelező mezők, formátum, tartomány ellenőrzés |
+
+### Feature teszt példa – Bejelentés létrehozás
+
+```php
+public function test_authenticated_user_can_create_report(): void
+{
+    $user = User::factory()->create();
+    $category = Category::first();
+
+    $response = $this->actingAs($user)->postJson('/api/reports', [
+        'category_id' => $category->id,
+        'title'       => 'Teszt bejelentés',
+        'description' => 'Részletes leírás a paranormális eseményről.',
+        'date'        => '2026-03-15',
+        'latitude'    => 47.4979,
+        'longitude'   => 19.0402,
+        'witnesses'   => 2,
+    ]);
+
+    $response->assertStatus(201)
+             ->assertJsonFragment(['title' => 'Teszt bejelentés']);
+}
+```
+
+### Feature teszt példa – Jogosulatlan hozzáférés
+
+```php
+public function test_guest_cannot_create_report(): void
+{
+    $response = $this->postJson('/api/reports', [
+        'title' => 'Teszt',
+    ]);
+
+    $response->assertStatus(401);
+}
+```
+
+### Feature teszt példa – Admin jóváhagyás
+
+```php
+public function test_admin_can_approve_report(): void
+{
+    $admin = User::factory()->create(['role' => 'admin']);
+    $report = Report::factory()->create(['status' => 'pending']);
+
+    $response = $this->actingAs($admin)
+                     ->putJson("/api/admin/reports/{$report->id}/approve");
+
+    $response->assertStatus(200);
+    $this->assertDatabaseHas('reports', [
+        'id' => $report->id,
+        'status' => 'approved',
+    ]);
+}
+```
+
+## 12. Mappastruktúra
+
+```
+backend/
+├── app/
+│   ├── Http/
+│   │   ├── Controllers/
+│   │   │   └── Api/
+│   │   │       ├── AuthController.php        # Regisztráció, login, logout
+│   │   │       ├── ReportController.php      # Bejelentések CRUD
+│   │   │       ├── CategoryController.php    # Kategóriák CRUD
+│   │   │       ├── ImageController.php       # Képfeltöltés és törlés
+│   │   │       ├── VoteController.php        # Szavazás kezelése
+│   │   │       ├── ProfileController.php     # Profil kezelés
+│   │   │       ├── StatisticsController.php  # Publikus statisztikák
+│   │   │       └── Admin/
+│   │   │           ├── ReportController.php      # Moderálás
+│   │   │           ├── UserController.php        # Felhasználó kezelés
+│   │   │           └── StatisticsController.php  # Admin statisztikák
+│   │   ├── Middleware/
+│   │   │   ├── AdminMiddleware.php           # Admin jogosultság
+│   │   │   └── CheckBanned.php              # Kitiltott user blokkol
+│   │   └── Requests/
+│   │       ├── RegisterRequest.php
+│   │       ├── StoreReportRequest.php
+│   │       ├── UpdateReportRequest.php
+│   │       ├── StoreCategoryRequest.php
+│   │       ├── UpdateCategoryRequest.php
+│   │       └── VoteRequest.php
+│   └── Models/
+│       ├── User.php
+│       ├── Report.php
+│       ├── Category.php
+│       ├── ReportImage.php
+│       └── Vote.php
+├── database/
+│   ├── migrations/                           # Adatbázis séma
+│   └── seeders/                              # Tesztadatok
+├── routes/
+│   └── api.php                               # API útvonalak definíciója
+├── config/
+│   ├── cors.php                              # CORS beállítások
+│   ├── sanctum.php                           # Autentikáció konfiguráció
+│   └── database.php                          # Adatbázis konfiguráció
+├── storage/
+│   └── app/public/report_images/             # Feltöltött képek
+├── tests/
+│   ├── Feature/                              # Feature tesztek
+│   └── Unit/                                 # Unit tesztek
+└── ufo-api.postman_collection.json           # Postman gyűjtemény
+```
+
 ---
+
+## 13. Összefoglaló
+
+| Szempont | Részlet |
+|---|---|
+| **Végpontok száma** | ~26 REST API végpont |
+| **Modellek** | 5 (User, Report, Category, ReportImage, Vote) |
+| **Middleware** | 2 egyéni (Admin, CheckBanned) + Sanctum |
+| **Validáció** | 6 Form Request osztály |
+| **Jogosultsági szintek** | 3 (vendég, felhasználó, admin) |
+| **Tesztelés** | Postman gyűjtemény + PHPUnit Feature tesztek |
+| **Adatbázis** | SQLite (fejlesztéshez) / MySQL (éles) |
+
 
 ## 15. Hasznos Artisan parancsok
 

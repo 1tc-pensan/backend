@@ -672,20 +672,7 @@ backend/
 
 ---
 
-## 13. Összefoglaló
-
-| Szempont | Részlet |
-|---|---|
-| **Végpontok száma** | ~26 REST API végpont |
-| **Modellek** | 5 (User, Report, Category, ReportImage, Vote) |
-| **Middleware** | 2 egyéni (Admin, CheckBanned) + Sanctum |
-| **Validáció** | 6 Form Request osztály |
-| **Jogosultsági szintek** | 3 (vendég, felhasználó, admin) |
-| **Tesztelés** | Postman gyűjtemény + PHPUnit Feature tesztek |
-| **Adatbázis** | SQLite (fejlesztéshez) / MySQL (éles) |
-
-
-## 15. Hasznos Artisan parancsok
+## 14. Hasznos Artisan parancsok
 
 ```bash
 # Migrációk futtatása
@@ -706,3 +693,16 @@ php artisan config:cache
 # Storage symlink létrehozása
 php artisan storage:link
 ```
+
+
+## 15. Összefoglaló
+
+| Szempont | Részlet |
+|---|---|
+| **Végpontok száma** | ~26 REST API végpont |
+| **Modellek** | 5 (User, Report, Category, ReportImage, Vote) |
+| **Middleware** | 2 egyéni (Admin, CheckBanned) + Sanctum |
+| **Validáció** | 6 Form Request osztály |
+| **Jogosultsági szintek** | 3 (vendég, felhasználó, admin) |
+| **Tesztelés** | Postman gyűjtemény + PHPUnit Feature tesztek |
+| **Adatbázis** | SQLite (fejlesztéshez) / MySQL (éles) |
